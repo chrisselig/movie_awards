@@ -1,0 +1,7 @@
+pandas
+numpy
+duckdb
+google-api-python-client
+google-auth
+schedule
+requests
