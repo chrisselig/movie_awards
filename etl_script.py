@@ -3,54 +3,142 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 from google.oauth2.service_account import Credentials
 import pandas as pd
+import json
 import duckdb
 import io
+import openpyxl
 from datetime import datetime
 
-# Get credentials and settings from environment variables
-SERVICE_ACCOUNT_FILE = 'service_account.json'
-SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
-SHARED_FOLDER_ID = os.getenv('SHARED_FOLDER_ID')
-MOTHERDUCK_DSN = os.getenv('MOTHERDUCK_DSN')
+# Path to the configuration file
+config_file = "config.json"
 
-# Authenticate to Google Drive API
-credentials = Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=SCOPES)
+# Variables
+download_directory = "data"
+
+# Load configuration
+try:
+    with open(config_file, "r") as f:
+        config = json.load(f)
+        folder_id = config.get("folder_id")
+        motherduck_dsn = config.get("motherduck_dsn")
+        if not folder_id or not motherduck_dsn:
+            raise ValueError("Both 'folder_id' and 'motherduck_dsn' must be set in the config file.")
+except FileNotFoundError:
+    raise FileNotFoundError(f"Configuration file '{config_file}' not found.")
+except json.JSONDecodeError as e:
+    raise ValueError(f"Error decoding JSON from '{config_file}': {e}")
+
+# Path to your service account JSON file
+SERVICE_ACCOUNT_FILE = 'service_account.json'
+
+# Authenticate with Google APIs
+credentials = Credentials.from_service_account_file(
+    SERVICE_ACCOUNT_FILE,
+    scopes=["https://www.googleapis.com/auth/drive.readonly"]
+)
+
+# Build the Drive API client
 drive_service = build('drive', 'v3', credentials=credentials)
 
-def list_files_in_drive_folder(folder_id):
-    results = drive_service.files().list(
-        q=f"'{folder_id}' in parents",
-        fields="files(id, name)"
-    ).execute()
-    return results.get('files', [])
 
-def download_file(file_id):
-    request = drive_service.files().get_media(fileId=file_id)
-    fh = io.BytesIO()
-    downloader = MediaIoBaseDownload(fh, request)
-    done = False
-    while not done:
-        status, done = downloader.next_chunk()
-    fh.seek(0)
-    return fh
+
+
+def list_files_in_drive_folder(folder_id):
+    """List .xlsx files in a specified Google Drive folder."""
+    try:
+        results = drive_service.files().list(
+            q=f"'{folder_id}' in parents",
+            fields="files(id, name)"
+        ).execute()
+        files = results.get('files', [])
+        # Filter files to include only .xlsx files
+        xlsx_files = [file for file in files if 'name' in file and file['name'].endswith('.xlsx')]
+        return xlsx_files
+    except Exception as e:
+        print(f"Error listing files in folder {folder_id}: {e}")
+        return []
+
+
+def download_file(file_id, file_name, download_dir):
+    """Download a file from Google Drive by file ID and save it to a specified directory."""
+    import os
+    from googleapiclient.http import MediaIoBaseDownload
+    import io
+
+    try:
+        # Ensure the download directory exists
+        if not os.path.exists(download_dir):
+            os.makedirs(download_dir)
+        
+        # Create a request to download the file
+        request = drive_service.files().get_media(fileId=file_id)
+        fh = io.BytesIO()  # A file-like object to store the file content
+        downloader = MediaIoBaseDownload(fh, request)
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
+        fh.seek(0)  # Reset the file pointer to the beginning
+        
+        # Save the file to the specified directory
+        file_path = os.path.join(download_dir, file_name)
+        with open(file_path, "wb") as f:
+            f.write(fh.read())
+        
+        print(f"Downloaded {file_name} successfully to {file_path}.")
+        return file_path  # Return the full file path
+    except Exception as e:
+        print(f"Error downloading file '{file_name}' (ID: {file_id}): {e}")
+        return None
+
 
 def process_and_load(file_stream, table_name):
-    df = pd.read_excel(file_stream)
-    con = duckdb.connect(database=MOTHERDUCK_DSN)
-    con.execute(f"CREATE TABLE IF NOT EXISTS {table_name} AS SELECT * FROM df LIMIT 0")
-    con.execute(f"INSERT INTO {table_name} SELECT * FROM df")
-    print(f"Data from {table_name} loaded successfully to MotherDuck.")
-    con.close()
+    """Process an Excel file and load its contents into a DuckDB table."""
+    try:
+        # Load data into a Pandas DataFrame
+        df = pd.read_excel(file_stream)
+
+        # Standardize column names (optional: handle renaming or cleaning)
+        df.columns = [col.strip().replace(" ", "_").lower() for col in df.columns]
+
+        # Connect to DuckDB (or MotherDuck using the DSN)
+        con = duckdb.connect(database=motherduck_dsn)
+
+        # Drop and recreate the table to handle schema changes
+        con.execute(f"DROP TABLE IF EXISTS {table_name}")
+        con.execute(f"CREATE TABLE {table_name} AS SELECT * FROM df LIMIT 0")
+
+        # Insert data into the recreated table
+        con.execute(f"INSERT INTO {table_name} SELECT * FROM df")
+        print(f"Data from {table_name} loaded successfully into MotherDuck.")
+
+        # Close the connection
+        con.close()
+
+    except Exception as e:
+        print(f"Error processing and loading file into {table_name}: {e}")
 
 def etl_process():
+    """Main ETL process to handle downloading, processing, and loading data."""
     print(f"Starting ETL process at {datetime.now()}...")
-    files = list_files_in_drive_folder(SHARED_FOLDER_ID)
+    files = list_files_in_drive_folder(folder_id)
+
+    if not files:
+        print("No files found in the shared folder.")
+        return
 
     for file in files:
-        if file['name'].endswith('.xlsx'):
-            print(f"Processing file: {file['name']}")
-            file_stream = download_file(file['id'])
-            process_and_load(file_stream, table_name='excel_data')
+        file_name = file['name']
+        file_stream = download_file(file['id'], file_name = file['name'], download_dir = download_directory)
+        
+        if file_stream:
+            # Generate table name
+            table_name = f"stg_{file_name.replace('.xlsx', '').replace(' ', '_').lower()}"
+            print(f"Processing file: {file_name}, creating table: {table_name}")
+            
+            # Process and load the file
+            process_and_load(file_stream, table_name)
 
 if __name__ == "__main__":
     etl_process()
+
+etl_process()

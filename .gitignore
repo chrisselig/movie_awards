@@ -7,6 +7,9 @@ __pycache__/
 service_account.json
 config.json
 
+# Data
+data/
+
 # C extensions
 *.so
 
