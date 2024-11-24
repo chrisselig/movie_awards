@@ -9,24 +9,27 @@ import io
 import openpyxl
 from datetime import datetime
 
-# Path to the configuration file
-config_file = "config.json"
-
 # Variables
 download_directory = "data"
 
 # Load configuration
-try:
-    with open(config_file, "r") as f:
-        config = json.load(f)
-        folder_id = config.get("folder_id")
-        motherduck_dsn = config.get("motherduck_dsn")
-        if not folder_id or not motherduck_dsn:
-            raise ValueError("Both 'folder_id' and 'motherduck_dsn' must be set in the config file.")
-except FileNotFoundError:
-    raise FileNotFoundError(f"Configuration file '{config_file}' not found.")
-except json.JSONDecodeError as e:
-    raise ValueError(f"Error decoding JSON from '{config_file}': {e}")
+folder_id = os.getenv("folder_id")  # Try to get from environment variables
+motherduck_dsn = os.getenv("motherduck_dsn")  # Try to get from environment variables
+config_file = "config.json"  # Path to local configuration file
+
+if not folder_id or not motherduck_dsn:
+    # If not provided via environment variables, load from config.json
+    try:
+        with open(config_file, "r") as f:
+            config = json.load(f)
+            folder_id = folder_id or config.get("folder_id")
+            motherduck_dsn = motherduck_dsn or config.get("motherduck_dsn")
+            if not folder_id or not motherduck_dsn:
+                raise ValueError("Both 'folder_id' and 'motherduck_dsn' must be set in the config file.")
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Configuration file '{config_file}' not found.")
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Error decoding JSON from '{config_file}': {e}")
 
 # Path to your service account JSON file
 SERVICE_ACCOUNT_FILE = 'service_account.json'
@@ -39,8 +42,6 @@ credentials = Credentials.from_service_account_file(
 
 # Build the Drive API client
 drive_service = build('drive', 'v3', credentials=credentials)
-
-
 
 
 def list_files_in_drive_folder(folder_id):
@@ -61,10 +62,6 @@ def list_files_in_drive_folder(folder_id):
 
 def download_file(file_id, file_name, download_dir):
     """Download a file from Google Drive by file ID and save it to a specified directory."""
-    import os
-    from googleapiclient.http import MediaIoBaseDownload
-    import io
-
     try:
         # Ensure the download directory exists
         if not os.path.exists(download_dir):
@@ -117,6 +114,7 @@ def process_and_load(file_stream, table_name):
     except Exception as e:
         print(f"Error processing and loading file into {table_name}: {e}")
 
+
 def etl_process():
     """Main ETL process to handle downloading, processing, and loading data."""
     print(f"Starting ETL process at {datetime.now()}...")
@@ -128,7 +126,7 @@ def etl_process():
 
     for file in files:
         file_name = file['name']
-        file_stream = download_file(file['id'], file_name = file['name'], download_dir = download_directory)
+        file_stream = download_file(file['id'], file_name=file['name'], download_dir=download_directory)
         
         if file_stream:
             # Generate table name
@@ -138,7 +136,6 @@ def etl_process():
             # Process and load the file
             process_and_load(file_stream, table_name)
 
+
 if __name__ == "__main__":
     etl_process()
-
-etl_process()
