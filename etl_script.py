@@ -52,12 +52,13 @@ def list_files_in_drive_folder(folder_id):
             fields="files(id, name)"
         ).execute()
         files = results.get('files', [])
-        # Filter files to include only .xlsx files
-        xlsx_files = [file for file in files if 'name' in file and file['name'].endswith('.xlsx')]
+        # Filter files to include only .xlsx files and exclude those with '~' in the name
+        xlsx_files = [file for file in files if 'name' in file and file['name'].endswith('.xlsx') and '~' not in file['name']]
         return xlsx_files
     except Exception as e:
         print(f"Error listing files in folder {folder_id}: {e}")
         return []
+
 
 
 def download_file(file_id, file_name, download_dir):
