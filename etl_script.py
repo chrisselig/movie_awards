@@ -8,6 +8,7 @@ import duckdb
 import io
 import openpyxl
 from datetime import datetime
+import re
 
 # Variables
 download_directory = "data"
@@ -98,6 +99,11 @@ def process_and_load(file_stream, table_name):
         # Standardize column names (optional: handle renaming or cleaning)
         df.columns = [col.strip().replace(" ", "_").lower() for col in df.columns]
 
+        # Standardize column names: strip whitespace, remove single quotes, and replace special characters with an underscore
+        df.columns = [
+            re.sub(r'\W+', '_', col.strip().replace("'", "")) for col in df.columns
+        ]
+
         # Connect to DuckDB (or MotherDuck using the DSN)
         con = duckdb.connect(database=motherduck_dsn)
 
@@ -130,12 +136,12 @@ def etl_process():
         file_stream = download_file(file['id'], file_name=file['name'], download_dir=download_directory)
         
         if file_stream:
-            # Generate table name
-            table_name = f"stg_{file_name.replace('.xlsx', '').replace(' ', '_').lower()}"
-            print(f"Processing file: {file_name}, creating table: {table_name}")
+            # Sanitize the file name to create a valid table name, and ensure it starts with 'stg_'
+            sanitized_table_name = "stg_" + re.sub(r'\W+', '_', file_name.replace('.xlsx', '').strip().lower())
+            print(f"Processing file: {file_name}, creating table: {sanitized_table_name}")
             
             # Process and load the file
-            process_and_load(file_stream, table_name)
+            process_and_load(file_stream, sanitized_table_name)
 
 
 if __name__ == "__main__":
