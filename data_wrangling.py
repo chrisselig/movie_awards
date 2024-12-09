@@ -44,9 +44,12 @@ try:
 except Exception as e:
     print(f"Error querying the database: {e}")
 
+
+con.close()
+
 # Clean best and worst movies ----
 movies = pd.concat([stg_best_movies,stg_worst_movies],ignore_index=True)
 
 
 # Write back to motherduck ----
-load_to_motherduck(table_name = movies, file_stream=movies)
+load_to_motherduck(df = movies,table_name='movies',motherduck_dsn=motherduck_dsn)
