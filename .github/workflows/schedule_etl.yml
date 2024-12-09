@@ -39,3 +39,9 @@ jobs:
           folder_id: ${{ secrets.folder_id }}
           motherduck_dsn: ${{ secrets.motherduck_dsn }}
         run: python etl_script.py
+
+      # Run data wrangling script
+      - name: Run data wrangling script
+        env:
+          motherduck_dsn: ${{ secrets.motherduck_dsn }}
+        run: python data_wrangling.py
