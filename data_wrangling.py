@@ -50,6 +50,10 @@ con.close()
 # Clean best and worst movies ----
 movies = pd.concat([stg_best_movies,stg_worst_movies],ignore_index=True)
 
+# Clean columns
+movies['genre'] = movies['genre'].fillna(value = 'Unknown Genre')
+
 
 # Write back to motherduck ----
 load_to_motherduck(df = movies,table_name='movies',motherduck_dsn=motherduck_dsn)
+# %%
